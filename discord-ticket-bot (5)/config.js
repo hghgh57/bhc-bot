@@ -9,7 +9,7 @@ module.exports = {
 
   bypassRole: "1548647934525055096", // can always type in a ticket even after it's been claimed by someone else
   staffRole: "1510924042469900318",   // gets pinged + can see every new ticket as soon as it's created
-  ticketLogChannel: "", // where ticket opened/claimed/closed events get logged. Leave as "" to disable logging.
+  ticketLogChannel: "1548660681383874607", // where ticket opened/claimed/closed events get logged. Leave as "" to disable logging.
 
   // One category per ticket type in tickets.js — the ticket channel gets
   // created under the matching category here.
