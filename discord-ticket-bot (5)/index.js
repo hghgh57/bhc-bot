@@ -120,7 +120,7 @@ for (const file of commandFiles) {
 client.once("ready", () => {
   console.log(`Ready — loaded ${client.commands.size} command(s): ${[...client.commands.keys()].join(", ")}`);
   console.log("Note: slash commands are registered via `node deploy-commands.js`, not on startup.");
-  client.user.setActivity("your server", { type: ActivityType.Watching });
+  client.user.setActivity("BHC37's Server", { type: ActivityType.Watching });
 });
 
 // =====================================================================
