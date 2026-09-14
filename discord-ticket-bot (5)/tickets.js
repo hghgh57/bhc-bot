@@ -98,7 +98,7 @@ async function sendTicketPanel(channel) {
   const e = new EmbedBuilder()
     .setColor("#8B5CF6")
     .setTitle("Tickets")
-    .setDescription(`Below is a drop down menu to create support tickets and for market tickets. Make sure to read the Ticket rules above ^\n\n${list}`);
+    .setDescription(list);
   const m = new StringSelectMenuBuilder().setCustomId("ticket").setPlaceholder("Select...")
     .addOptions(Object.entries(tickets).map(([k, v]) => ({ label: v.label, value: k, emoji: v.emoji, description: "Click on this option to create a ticket" })));
   await channel.send({ embeds: [e], components: [new ActionRowBuilder().addComponents(m)] });
