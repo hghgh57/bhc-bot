@@ -23,6 +23,9 @@ const { getLockSnapshot, setLockSnapshot, deleteLockSnapshot } = require("./lock
 // here) so commands/close.js can read the same claim lock the buttons use.
 const { getClaim, setClaim, deleteClaim } = require("./ticketClaims");
 
+// Giveaways: /gcreate, /greroll, and the Join/Leave buttons.
+const { initGiveaways, joinGiveaway, leaveGiveaway } = require("./giveawayManager");
+
 const LOCK_PERMS = ["SendMessages"];
 
 // A ticket channel this bot actually created always has its opener's user
@@ -121,6 +124,8 @@ client.once("ready", () => {
   console.log(`Ready — loaded ${client.commands.size} command(s): ${[...client.commands.keys()].join(", ")}`);
   console.log("Note: slash commands are registered via `node deploy-commands.js`, not on startup.");
   client.user.setActivity("BHC37's Server", { type: ActivityType.Watching });
+
+  initGiveaways(client).catch(err => console.error("Failed to initialize giveaways:", err));
 });
 
 // =====================================================================
@@ -136,6 +141,28 @@ client.on("interactionCreate", async i => {
     } catch (err) {
       console.error(`Error running /${i.commandName}:`, err);
       const payload = { content: "❌ Something went wrong running that command.", ephemeral: true };
+      if (i.replied || i.deferred) await i.followUp(payload).catch(() => {});
+      else await i.reply(payload).catch(() => {});
+    }
+    return;
+  }
+
+  // ---- Giveaway join / leave ----
+  if (i.isButton() && (i.customId.startsWith("giveaway_join_") || i.customId.startsWith("giveaway_leave_"))) {
+    const isLeave = i.customId.startsWith("giveaway_leave_");
+    const prefix = isLeave ? "giveaway_leave_" : "giveaway_join_";
+    const giveawayId = i.customId.slice(prefix.length);
+
+    if (!giveawayId) {
+      return i.reply({ content: "❌ Invalid giveaway.", ephemeral: true });
+    }
+
+    try {
+      if (isLeave) await leaveGiveaway(i, giveawayId);
+      else await joinGiveaway(i, giveawayId);
+    } catch (err) {
+      console.error("Giveaway button error:", err);
+      const payload = { content: "❌ Something went wrong with that button.", ephemeral: true };
       if (i.replied || i.deferred) await i.followUp(payload).catch(() => {});
       else await i.reply(payload).catch(() => {});
     }
