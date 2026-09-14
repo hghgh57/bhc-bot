@@ -16,6 +16,8 @@ const tickets = {
   buying: {
     emoji: "🦴",
     label: "Buying Spawners",
+    panelLabel: "Buying spawners",
+    panelDesc: "Buy spawners from staff",
     calc: true,
     questions: [
       { label: "How many?", style: TextInputStyle.Short },
@@ -25,6 +27,8 @@ const tickets = {
   selling: {
     emoji: "🦴",
     label: "Sell Spawners",
+    panelLabel: "Sell spawners",
+    panelDesc: "Sell spawners to staff",
     calc: true,
     questions: [
       { label: "How many?", style: TextInputStyle.Short },
@@ -34,6 +38,8 @@ const tickets = {
   gamble: {
     emoji: "💵",
     label: "Missed Gamble",
+    panelLabel: "Missed gamble",
+    panelDesc: "Make this if BHC missed your gamble",
     questions: [
       { label: "What happened?", style: TextInputStyle.Paragraph },
       { label: "How much was missed?", style: TextInputStyle.Short },
@@ -43,6 +49,8 @@ const tickets = {
   giveaway: {
     emoji: "💰",
     label: "Giveaway Sponsor/Claim",
+    panelLabel: "Giveaway claim/sponsor",
+    panelDesc: "Sponsor or claim a giveaway",
     questions: [
       { label: "How much did you win?", style: TextInputStyle.Short },
       { label: "What's your IGN?", style: TextInputStyle.Short },
@@ -56,6 +64,8 @@ const tickets = {
   partnership: {
     emoji: "🤝",
     label: "Partnership",
+    panelLabel: "Partnership",
+    panelDesc: "Propose a partnership with our server",
     questions: [
       { label: "How many members does your server have?", style: TextInputStyle.Short },
       { label: "Can you send your ad straight away?", style: TextInputStyle.Short }
@@ -81,10 +91,14 @@ function calculateTotal(qtyAnswer, priceAnswer) {
 }
 
 async function sendTicketPanel(channel) {
+  const list = Object.values(tickets)
+    .map(v => `**${v.panelLabel}**\n${v.panelDesc}`)
+    .join("\n");
+
   const e = new EmbedBuilder()
     .setColor("#8B5CF6")
     .setTitle("Tickets")
-    .setDescription("Below is a drop down menu to create support tickets and for market tickets  Make sure to read the Ticket rules above ^");
+    .setDescription(`Below is a drop down menu to create support tickets and for market tickets. Make sure to read the Ticket rules above ^\n\n${list}`);
   const m = new StringSelectMenuBuilder().setCustomId("ticket").setPlaceholder("Select...")
     .addOptions(Object.entries(tickets).map(([k, v]) => ({ label: v.label, value: k, emoji: v.emoji, description: "Click on this option to create a ticket" })));
   await channel.send({ embeds: [e], components: [new ActionRowBuilder().addComponents(m)] });
