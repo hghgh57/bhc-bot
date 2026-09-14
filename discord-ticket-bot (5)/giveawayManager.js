@@ -311,6 +311,18 @@ async function joinGiveaway(interaction, giveawayId) {
 
   saveGiveaways();
 
+  // Reply immediately — Discord only allows ~3s to acknowledge an
+  // interaction, and fetching + editing the public giveaway message can
+  // sometimes take longer than that (rate limits, slow API responses).
+  // Doing the reply first means the button always responds instantly;
+  // the entry-count refresh on the public message happens right after,
+  // in the background.
+  await interaction.reply({
+    content: "You joined the giveaway",
+    components: [createLeaveButton(giveaway)],
+    ephemeral: true
+  });
+
   try {
     const channel = interaction.client.channels.cache.get(giveaway.channelId);
 
@@ -325,12 +337,6 @@ async function joinGiveaway(interaction, giveawayId) {
   } catch (error) {
     console.error("Giveaway update error:", error);
   }
-
-  await interaction.reply({
-    content: "You joined the giveaway",
-    components: [createLeaveButton(giveaway)],
-    ephemeral: true
-  });
 }
 
 async function leaveGiveaway(interaction, giveawayId) {
@@ -364,6 +370,14 @@ async function leaveGiveaway(interaction, giveawayId) {
 
   saveGiveaways();
 
+  // Same ordering as joinGiveaway above — reply first so the button never
+  // times out, then refresh the public message's entry count.
+  await interaction.reply({
+    content: "You left the giveaway",
+    components: [createJoinButton(giveaway)],
+    ephemeral: true
+  });
+
   try {
     const channel = interaction.client.channels.cache.get(giveaway.channelId);
 
@@ -378,12 +392,6 @@ async function leaveGiveaway(interaction, giveawayId) {
   } catch (error) {
     console.error("Giveaway update error:", error);
   }
-
-  await interaction.reply({
-    content: "You left the giveaway",
-    components: [createJoinButton(giveaway)],
-    ephemeral: true
-  });
 
   return { success: true };
 }
