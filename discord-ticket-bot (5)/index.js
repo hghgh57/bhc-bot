@@ -17,7 +17,6 @@ const {
 const { recordDeletedMessage, clearSnipe, getSnipe, buildSnipeEmbed } = require("./snipe");
 const { handleMessageForSticky } = require("./sticky");
 const { setAfk, clearAfk, getAfk } = require("./afk");
-const { getLockSnapshot, setLockSnapshot, deleteLockSnapshot } = require("./locks");
 
 // channelId -> claimer's user id. Lives in ./ticketClaims (not a local Map
 // here) so commands/close.js can read the same claim lock the buttons use.
@@ -26,7 +25,6 @@ const { getClaim, setClaim, deleteClaim } = require("./ticketClaims");
 // Giveaways: /gcreate, /greroll, and the Join/Leave buttons.
 const { initGiveaways, joinGiveaway, leaveGiveaway } = require("./giveawayManager");
 
-const LOCK_PERMS = ["SendMessages"];
 
 // A ticket channel this bot actually created always has its opener's user
 // ID set as the channel topic (same check /close and /ticket-rename use).
@@ -90,7 +88,7 @@ const client = new Client({
 // totally normal, everyday timing hiccups, NOT bugs worth taking the
 // whole bot down for. With no listener attached, Node's default
 // behaviour for an unhandled "error" event is to crash the process,
-// which is what was killing ,lock/,unlock/close: one bad interaction
+// which is what was killing ,close: one bad interaction
 // anywhere would kill the entire bot mid-command. These two listeners
 // just log the error instead of crashing, so one flaky interaction
 // can't take every other command down with it.
@@ -686,151 +684,6 @@ client.on("messageCreate", async message => {
     if (!isStaff(message.member)) return message.reply({ content: "No permission." });
     const cleared = clearSnipe(message.channelId);
     return message.reply({ content: cleared ? "🧹 Snipe cleared for this channel." : "There was nothing to clear." });
-  }
-
-  if (cmd === "lock") {
-    const canLock = message.member.permissions.has(PermissionsBitField.Flags.Administrator) || message.member.roles.cache.has(config.lockRole);
-    if (!canLock) return message.reply({ content: "No permission." });
-    const channel = message.channel;
-    const everyoneId = message.guild.roles.everyone.id;
-
-    const overwrites = [...channel.permissionOverwrites.cache.values()];
-    const snapshot = overwrites.map(ow => ({
-      id: ow.id,
-      type: ow.type, // 0 = role, 1 = member — needed so .edit() doesn't have to resolve the ID itself
-      prev: Object.fromEntries(LOCK_PERMS.map(p => [
-        p,
-        ow.allow.has(PermissionsBitField.Flags[p]) ? true
-          : ow.deny.has(PermissionsBitField.Flags[p]) ? false
-          : null
-      ]))
-    }));
-
-    // Track failures instead of letting one bad overwrite (e.g. a role the
-    // bot can't touch) throw and abort the loop with the channel half-locked
-    // and nothing saved to locks.json.
-    const failed = [];
-    for (const ow of overwrites) {
-      try {
-        // Pass { type: ow.type } explicitly — otherwise discord.js tries to
-        // resolve ow.id to a cached User/Role and throws InvalidType for
-        // anything not currently in cache (which any role/member easily can be).
-        await channel.permissionOverwrites.edit(ow.id, { SendMessages: false }, { type: ow.type });
-      } catch (err) {
-        console.error(`,lock: failed to edit overwrite ${ow.id} in #${channel.name}:`, err);
-        failed.push(ow.id);
-      }
-    }
-    if (!overwrites.some(ow => ow.id === everyoneId)) {
-      try {
-        await channel.permissionOverwrites.edit(everyoneId, { SendMessages: false }, { type: 0 });
-        snapshot.push({ id: everyoneId, type: 0, prev: { SendMessages: null } });
-      } catch (err) {
-        console.error(`,lock: failed to edit @everyone in #${channel.name}:`, err);
-        failed.push(everyoneId);
-      }
-    }
-    // Only persist the overwrites that actually got locked, so ,unlock
-    // doesn't try (and fail again) to restore ones that were never touched.
-    setLockSnapshot(channel.id, snapshot.filter(s => !failed.includes(s.id)));
-
-    if (failed.length) {
-      return channel.send({
-        content: `🔒 ${channel} was partially locked by ${message.author} — couldn't update ${failed.length} overwrite(s) (check the bot's Manage Roles permission and role position). See console for details.`
-      });
-    }
-    return channel.send({ content: `🔒 ${channel} was locked by ${message.author}` });
-  }
-
-  if (cmd === "unlock") {
-    const canLock = message.member.permissions.has(PermissionsBitField.Flags.Administrator) || message.member.roles.cache.has(config.lockRole);
-    if (!canLock) return message.reply({ content: "No permission." });
-    const channel = message.channel;
-    const everyoneId = message.guild.roles.everyone.id;
-
-    const snapshot = getLockSnapshot(channel.id);
-    deleteLockSnapshot(channel.id);
-
-    // Track failures instead of silently swallowing them — an edit failing
-    // (bot's role below the target role/member, or missing Manage Roles)
-    // used to still end in a cheerful "was unlocked" message even though
-    // nothing actually changed.
-    const failed = [];
-
-    if (snapshot) {
-      for (const { id, type, prev } of snapshot) {
-        // type may be undefined on snapshots saved before this fix — fall
-        // back to role (0), which covers the common case (@everyone/staff roles).
-        try {
-          await channel.permissionOverwrites.edit(id, prev, { type: type ?? 0 });
-        } catch (err) {
-          console.error(`,unlock: failed to restore overwrite ${id} in #${channel.name}:`, err);
-          failed.push(id);
-        }
-      }
-    } else {
-      // No saved snapshot — either this channel was never locked via ,lock,
-      // or the bot restarted (e.g. redeploy) and lost it. Either way, we
-      // can't restore the exact prior state, but we can still make sure
-      // nothing is left stuck denying SendMessages: clear it on every
-      // current overwrite, not just @everyone.
-      const current = [...channel.permissionOverwrites.cache.values()];
-      for (const ow of current) {
-        try {
-          await channel.permissionOverwrites.edit(ow.id, { SendMessages: null }, { type: ow.type });
-        } catch (err) {
-          console.error(`,unlock (no snapshot): failed to clear overwrite ${ow.id} in #${channel.name}:`, err);
-          failed.push(ow.id);
-        }
-      }
-      if (!current.some(ow => ow.id === everyoneId)) {
-        try {
-          await channel.permissionOverwrites.edit(everyoneId, { SendMessages: null }, { type: 0 });
-        } catch (err) {
-          console.error(`,unlock (no snapshot): failed to clear @everyone in #${channel.name}:`, err);
-          failed.push(everyoneId);
-        }
-      }
-    }
-
-    if (failed.length) {
-      return channel.send({
-        content: `⚠️ ${channel} could NOT be fully unlocked — ${failed.length} overwrite(s) failed to update. This usually means my role needs to be moved higher in Server Settings > Roles (above the roles/members it's trying to edit), or I'm missing **Manage Roles**. See console for exact IDs.`
-      });
-    }
-
-    return channel.send({ content: `🔓 ${channel} was unlocked by ${message.author}` });
-  }
-
-  if (cmd === "purge") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return message.reply({ content: "No permission." });
-    }
-
-    const arg = message.content.slice(1).trim().split(/\s+/)[1];
-    const requested = parseInt(arg, 10);
-    if (!arg || isNaN(requested) || requested < 1) {
-      return message.reply({ content: "Usage: `,purge <amount>` — amount must be between 1 and 100." });
-    }
-    const amount = Math.min(requested, 100);
-
-    let deleted;
-    try {
-      // +1 to also remove the ",purge" command message itself.
-      // The `true` filters out anything older than 14 days instead of
-      // throwing — Discord's bulk-delete API can't touch those at all.
-      deleted = await message.channel.bulkDelete(amount + 1, true);
-    } catch (err) {
-      console.error(",purge failed:", err);
-      return message.reply({ content: "Couldn't delete those messages — check my Manage Messages permission." });
-    }
-
-    const count = Math.max(deleted.size - 1, 0); // don't count the command message itself
-    const notice = await message.channel.send({
-      content: `🧹 Deleted ${count} message(s)${requested > 100 ? " (capped at 100 max)" : ""} — ${message.author}`
-    });
-    setTimeout(() => notice.delete().catch(() => {}), 4000);
-    return;
   }
 
   if (cmd === "roast") {
