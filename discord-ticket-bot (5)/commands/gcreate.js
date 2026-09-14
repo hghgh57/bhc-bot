@@ -2,6 +2,10 @@ const { SlashCommandBuilder } = require("discord.js");
 const { startGiveaway } = require("../giveawayManager");
 const { isStaff } = require("../utils");
 
+// Explicitly allowed regardless of isStaff/config.staffRole, so this keeps
+// working even if that config value ever changes.
+const GIVEAWAY_ROLE_ID = "1510924042469900318";
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("gcreate")
@@ -38,7 +42,9 @@ module.exports = {
       });
     }
 
-    if (!isStaff(interaction.member)) {
+    const hasRole = interaction.member.roles.cache.has(GIVEAWAY_ROLE_ID);
+
+    if (!isStaff(interaction.member) && !hasRole) {
       return interaction.reply({
         content: "❌ You need to be staff to use this command.",
         ephemeral: true
