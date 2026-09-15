@@ -18,6 +18,9 @@ const { recordDeletedMessage, clearSnipe, getSnipe, buildSnipeEmbed } = require(
 const { handleMessageForSticky } = require("./sticky");
 const { setAfk, clearAfk, getAfk } = require("./afk");
 
+// Reaction roles: /react-panel and the messageReactionAdd/Remove listeners below.
+const { isReactionRolePanel, findRoleForEmoji } = require("./reactionRoles");
+
 // channelId -> claimer's user id. Lives in ./ticketClaims (not a local Map
 // here) so commands/close.js can read the same claim lock the buttons use.
 const { getClaim, setClaim, deleteClaim } = require("./ticketClaims");
@@ -74,10 +77,11 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions, // needed for reaction roles (/react-panel)
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent
   ],
-  partials: [Partials.Channel, Partials.Message]
+  partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User]
 });
 
 // =====================================================================
@@ -467,6 +471,51 @@ client.on("interactionCreate", async i => {
 // =====================================================================
 client.on("guildMemberAdd", member => {
   sendWelcomeMessage(member).catch(err => console.error("Failed to send welcome message:", err));
+});
+
+// =====================================================================
+// REACTION ROLES — /react-panel
+// Only acts on messages sendReactionRolePanel() actually sent (tracked in
+// reactionRoles.js), so other reactions elsewhere in the server are left
+// alone. Ignores the bot's own reactions and skips any entry whose
+// roleId in config.js is still the placeholder text.
+// =====================================================================
+async function handleReactionRoleChange(reaction, user, add) {
+  if (user.bot) return;
+
+  try {
+    if (reaction.partial) await reaction.fetch();
+    if (reaction.message.partial) await reaction.message.fetch();
+  } catch (err) {
+    console.error("Failed to fetch partial reaction/message:", err);
+    return;
+  }
+
+  if (!isReactionRolePanel(reaction.message.id)) return;
+
+  const roleEntry = findRoleForEmoji(reaction.emoji);
+  if (!roleEntry || !roleEntry.roleId || roleEntry.roleId.endsWith("_ID")) return;
+
+  const guild = reaction.message.guild;
+  if (!guild) return;
+
+  const member = await guild.members.fetch(user.id).catch(() => null);
+  if (!member) return;
+
+  try {
+    if (add) await member.roles.add(roleEntry.roleId);
+    else await member.roles.remove(roleEntry.roleId);
+  } catch (err) {
+    console.error(`Failed to ${add ? "add" : "remove"} reaction role ${roleEntry.roleId} for ${user.id}:`, err);
+  }
+}
+
+client.on("messageReactionAdd", (reaction, user) => {
+  handleReactionRoleChange(reaction, user, true).catch(err => console.error("messageReactionAdd handler error:", err));
+});
+
+client.on("messageReactionRemove", (reaction, user) => {
+  handleReactionRoleChange(reaction, user, false).catch(err => console.error("messageReactionRemove handler error:", err));
 });
 
 // =====================================================================
