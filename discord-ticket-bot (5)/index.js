@@ -503,10 +503,23 @@ async function handleReactionRoleChange(reaction, user, add) {
   if (!member) return;
 
   try {
-    if (add) await member.roles.add(roleEntry.roleId);
-    else await member.roles.remove(roleEntry.roleId);
+    if (add) {
+      await member.roles.add(roleEntry.roleId);
+      await user.send({ content: `✅ You now have the **${roleEntry.label}** role.` }).catch(() => {});
+    } else {
+      await member.roles.remove(roleEntry.roleId);
+      await user.send({ content: `➖ Removed the **${roleEntry.label}** role.` }).catch(() => {});
+    }
   } catch (err) {
     console.error(`Failed to ${add ? "add" : "remove"} reaction role ${roleEntry.roleId} for ${user.id}:`, err);
+    // DM them so a missing-permission/role-hierarchy problem is visible
+    // right away instead of only showing up in the bot's console logs.
+    await user.send({
+      content:
+        `⚠️ I couldn't ${add ? "give" : "take away"} you the **${roleEntry.label}** role. ` +
+        "This is almost always because my role in Server Settings → Roles needs to be moved " +
+        "ABOVE that role, and/or I'm missing the \"Manage Roles\" permission — ask a staff member to check."
+    }).catch(() => {});
   }
 }
 
