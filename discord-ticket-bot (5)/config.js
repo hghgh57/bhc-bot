@@ -61,7 +61,7 @@ module.exports = {
     { emoji: "🎉", roleId: "1508454038243381289", label: "Giveaway ping", description: "pings you when there is a giveaway" },
     { emoji: "💀", roleId: "1549259696903561257", label: "Spawner price ping", description: "pings you when are prices change" },
     { emoji: "🔒", roleId: "1504850249435582474", label: "trusted gamble ping", description: "pings you when a trusted member is gambling" },
-    { emoji: "🎥", roleId: "STREAM_PING_ROLE_ID", label: "Stream ping", description: "get pinged when bhc37 goes live or a staff member" }
+    { emoji: "🎥", roleId: "1549259593106854038", label: "Stream ping", description: "get pinged when bhc37 goes live or a staff member" }
   ],
 
   // Welcome messages (sent when a new member joins)
