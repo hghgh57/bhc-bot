@@ -51,6 +51,19 @@ module.exports = {
     builder: "BUILDER_PING_ROLE_ID"
   },
 
+  // Reaction-role panel (/react-panel) — react with an emoji below to get
+  // the matching ping role, react again (or remove your reaction) to take
+  // it back off. If a roleId is still the placeholder text (ends in
+  // "_ID"), that entry's role mention is left out of the panel message
+  // and that emoji won't hand out a role yet — fill in the real role ID
+  // once you have it and resend the panel.
+  reactionRoles: [
+    { emoji: "🎉", roleId: "1508454038243381289", label: "Giveaway ping", description: "pings you when there is a giveaway" },
+    { emoji: "💀", roleId: "1549259696903561257", label: "Spawner price ping", description: "pings you when are prices change" },
+    { emoji: "🔒", roleId: "1504850249435582474", label: "trusted gamble ping", description: "pings you when a trusted member is gambling" },
+    { emoji: "🎥", roleId: "STREAM_PING_ROLE_ID", label: "Stream ping", description: "get pinged when bhc37 goes live or a staff member" }
+  ],
+
   // Welcome messages (sent when a new member joins)
   welcome: {
     channel: "1509490403114745867", // channel where the welcome message gets posted
