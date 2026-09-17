@@ -32,6 +32,12 @@ module.exports = {
         .setDescription("Examples: 7d, 24h, 30m, 1h")
         .setRequired(true)
         .setMaxLength(20)
+    )
+    .addBooleanOption(option =>
+      option
+        .setName("invite_entries")
+        .setDescription("Every 2 invites = +1 extra entry. Defaults to false.")
+        .setRequired(false)
     ),
 
   async execute(interaction) {
@@ -54,6 +60,7 @@ module.exports = {
     const prize = interaction.options.getString("prize", true).trim();
     const winners = interaction.options.getInteger("winners", true);
     const duration = interaction.options.getString("duration", true);
+    const inviteEntries = interaction.options.getBoolean("invite_entries") ?? false;
 
     if (!prize) {
       return interaction.reply({
@@ -65,7 +72,7 @@ module.exports = {
     let result;
 
     try {
-      result = await startGiveaway({ interaction, prize, winners, duration });
+      result = await startGiveaway({ interaction, prize, winners, duration, inviteEntries });
     } catch (error) {
       console.error("/gcreate error:", error);
       return interaction.reply({
