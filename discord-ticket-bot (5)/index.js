@@ -29,7 +29,9 @@ const { getClaim, setClaim, deleteClaim } = require("./ticketClaims");
 const { initGiveaways, joinGiveaway, leaveGiveaway } = require("./giveawayManager");
 
 // Invite tracking: powers /gcreate's invite_entries bonus-entries option.
-const { cacheGuildInvites, handleMemberJoin } = require("./inviteTracker");
+// Counts invites as soon as they're created — the invite doesn't need to
+// be used/joined for it to count.
+const { handleInviteCreate } = require("./inviteTracker");
 
 
 // A ticket channel this bot actually created always has its opener's user
@@ -82,7 +84,8 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildMessageReactions, // needed for reaction roles (/react-panel)
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildInvites // needed for the inviteCreate event (invite tracking)
   ],
   partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User]
 });
@@ -132,13 +135,6 @@ client.once("ready", () => {
   client.user.setActivity("BHC37's Server", { type: ActivityType.Watching });
 
   initGiveaways(client).catch(err => console.error("Failed to initialize giveaways:", err));
-
-  // Snapshot current invite use-counts for every guild so the very next
-  // join in each one can be compared against a baseline. Requires the bot
-  // to have "Manage Server" in that guild — logs a warning per-guild if not.
-  for (const guild of client.guilds.cache.values()) {
-    cacheGuildInvites(guild).catch(err => console.error(`Failed to cache invites for guild ${guild.id}:`, err));
-  }
 });
 
 // =====================================================================
@@ -488,7 +484,14 @@ client.on("interactionCreate", async i => {
 // =====================================================================
 client.on("guildMemberAdd", member => {
   sendWelcomeMessage(member).catch(err => console.error("Failed to send welcome message:", err));
-  handleMemberJoin(member).catch(err => console.error("Failed to process invite tracking for join:", err));
+});
+
+// =====================================================================
+// INVITE TRACKING — powers /gcreate's invite_entries bonus-entries option.
+// Fires as soon as an invite is created; it doesn't need to be used.
+// =====================================================================
+client.on("inviteCreate", invite => {
+  handleInviteCreate(invite).catch(err => console.error("Failed to process invite tracking for invite create:", err));
 });
 
 // =====================================================================
