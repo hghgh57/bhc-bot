@@ -82,6 +82,11 @@ module.exports = {
     }
 
     if (!result.success) {
+      // Another connected copy of the bot already handled this exact
+      // interaction — the reply almost certainly already went out (or will
+      // fail as "already acknowledged"), so don't try to reply again here.
+      if (result.alreadyClaimed) return;
+
       return interaction.reply({
         content: `❌ ${result.error}`,
         ephemeral: true
