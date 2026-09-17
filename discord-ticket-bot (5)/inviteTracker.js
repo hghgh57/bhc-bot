@@ -1,12 +1,12 @@
-// Tracks how many *other people* each member has invited into the server,
-// so features like /gcreate's bonus-entries-per-invite option have a real
+// Tracks how many invites each member has *created* (sent) in a guild, so
+// features like /gcreate's bonus-entries-per-invite option have a real
 // invite count to work from.
 //
-// How it works: Discord doesn't send "member X used invite Y" directly, so
-// we cache every invite's use-count per guild, and whenever someone joins we
-// re-fetch invites and see which one's use-count went up by 1 — that invite's
-// creator is credited with the join. This needs the bot to have the
-// "Manage Server" permission (required to read invite use-counts at all).
+// This counts invite creation, not successful joins — the invite doesn't
+// need to be used by anyone. Creating the same invite twice, or inviting
+// the same person twice, both still count (each inviteCreate is credited
+// independently). Counting per-user is capped at MAX_COUNTED_INVITES so it
+// can't be farmed past that by spamming invite creation.
 //
 // Counts are persisted to disk (mirrors the pattern giveawayManager.js
 // uses) so a restart/redeploy doesn't wipe everyone's invite counts.
@@ -27,8 +27,8 @@ try {
 
 const DATA_FILE = path.join(DATA_DIR, "invites.json");
 
-// guildId -> Map<inviteCode, uses>
-const inviteCache = new Map();
+// Invites beyond this many, per user per guild, stop being counted.
+const MAX_COUNTED_INVITES = 2;
 
 // guildId -> { userId: count }
 let inviteCounts = loadCountsFromDisk();
@@ -52,115 +52,33 @@ function saveCountsToDisk() {
   }
 }
 
-// Fetches and caches every invite's current use-count for a guild. Call
-// this on ready for every guild the bot is in, and again after handling a
-// join (so the next join compares against fresh numbers).
-async function cacheGuildInvites(guild) {
-  try {
-    const invites = await guild.invites.fetch();
+// Call this from your client's "inviteCreate" event. Credits whoever
+// created the invite +1, up to MAX_COUNTED_INVITES — the invite doesn't
+// need to ever be used/joined for it to count.
+async function handleInviteCreate(invite) {
+  const inviter = invite.inviter;
+  if (!inviter || inviter.bot) return;
 
-    const codeToUses = new Map();
-    for (const invite of invites.values()) {
-      codeToUses.set(invite.code, invite.uses ?? 0);
-    }
+  const guildId = invite.guildId || invite.guild?.id;
+  if (!guildId) return;
 
-    inviteCache.set(guild.id, codeToUses);
-  } catch (error) {
-    // Most common cause: the bot is missing "Manage Server" in this guild.
-    console.error(`Could not cache invites for guild ${guild.id} (needs Manage Server permission):`, error.message);
-  }
-}
+  if (!inviteCounts[guildId]) inviteCounts[guildId] = {};
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+  const current = inviteCounts[guildId][inviter.id] || 0;
+  if (current >= MAX_COUNTED_INVITES) return; // Already at the cap.
 
-// Two joins arriving close together (e.g. you inviting 2 people back-to-back)
-// used to race: both handlers would read the same cached "before" snapshot
-// before either had finished re-caching, and Discord's invite `uses` counter
-// can also lag a beat behind the actual join. Net effect: the second join's
-// credit could silently vanish. Queuing joins per-guild so they're always
-// processed one at a time (never concurrently) fixes that.
-const guildQueues = new Map(); // guildId -> Promise chain
-
-function runQueued(guildId, task) {
-  const previous = guildQueues.get(guildId) || Promise.resolve();
-  const next = previous.then(task, task).finally(() => {
-    if (guildQueues.get(guildId) === next) guildQueues.delete(guildId);
-  });
-  guildQueues.set(guildId, next);
-  return next;
-}
-
-// Call this from your guildMemberAdd handler. Figures out who invited the
-// new member (if possible) and credits them +1 invite.
-async function handleMemberJoin(member) {
-  if (member.user.bot) return; // Bots joining don't count as an invite entry.
-
-  return runQueued(member.guild.id, () => handleMemberJoinInternal(member));
-}
-
-async function handleMemberJoinInternal(member) {
-  const guild = member.guild;
-  const before = inviteCache.get(guild.id);
-
-  // Discord's invite `uses` count can take a moment to reflect a join that
-  // JUST happened, so a fetch made immediately after guildMemberAdd can
-  // still show the pre-join numbers. Retry a few times with a short delay
-  // before giving up, instead of only trying once.
-  let usedInvite = null;
-  let freshInvites = null;
-
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (attempt > 0) await sleep(750);
-
-    try {
-      freshInvites = await guild.invites.fetch();
-    } catch (error) {
-      console.error(`Could not fetch invites on join for guild ${guild.id}:`, error.message);
-      return;
-    }
-
-    if (before) {
-      for (const invite of freshInvites.values()) {
-        const previousUses = before.get(invite.code) ?? 0;
-        if ((invite.uses ?? 0) > previousUses) {
-          usedInvite = invite;
-          break;
-        }
-      }
-    }
-
-    if (usedInvite || !before) break; // Found it, or no baseline to compare against anyway.
-  }
-
-  // Re-cache with the fresh numbers regardless, so the next join compares
-  // correctly even if we couldn't identify this one (e.g. vanity URL, or
-  // the very first join after a bot restart with no prior cache).
-  const codeToUses = new Map();
-  for (const invite of freshInvites.values()) {
-    codeToUses.set(invite.code, invite.uses ?? 0);
-  }
-  inviteCache.set(guild.id, codeToUses);
-
-  if (!usedInvite || !usedInvite.inviter) return;
-
-  const inviterId = usedInvite.inviter.id;
-  if (inviterId === member.id) return; // Safety net, shouldn't normally happen.
-
-  if (!inviteCounts[guild.id]) inviteCounts[guild.id] = {};
-  inviteCounts[guild.id][inviterId] = (inviteCounts[guild.id][inviterId] || 0) + 1;
-
+  inviteCounts[guildId][inviter.id] = current + 1;
   saveCountsToDisk();
 }
 
-// Total invites credited to a user in a guild.
+// Total invites credited to a user in a guild (already capped at
+// MAX_COUNTED_INVITES).
 function getInviteCount(guildId, userId) {
   return inviteCounts[guildId]?.[userId] || 0;
 }
 
 module.exports = {
-  cacheGuildInvites,
-  handleMemberJoin,
-  getInviteCount
+  handleInviteCreate,
+  getInviteCount,
+  MAX_COUNTED_INVITES
 };
