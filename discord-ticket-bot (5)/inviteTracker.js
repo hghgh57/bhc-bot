@@ -71,32 +71,67 @@ async function cacheGuildInvites(guild) {
   }
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Two joins arriving close together (e.g. you inviting 2 people back-to-back)
+// used to race: both handlers would read the same cached "before" snapshot
+// before either had finished re-caching, and Discord's invite `uses` counter
+// can also lag a beat behind the actual join. Net effect: the second join's
+// credit could silently vanish. Queuing joins per-guild so they're always
+// processed one at a time (never concurrently) fixes that.
+const guildQueues = new Map(); // guildId -> Promise chain
+
+function runQueued(guildId, task) {
+  const previous = guildQueues.get(guildId) || Promise.resolve();
+  const next = previous.then(task, task).finally(() => {
+    if (guildQueues.get(guildId) === next) guildQueues.delete(guildId);
+  });
+  guildQueues.set(guildId, next);
+  return next;
+}
+
 // Call this from your guildMemberAdd handler. Figures out who invited the
 // new member (if possible) and credits them +1 invite.
 async function handleMemberJoin(member) {
   if (member.user.bot) return; // Bots joining don't count as an invite entry.
 
+  return runQueued(member.guild.id, () => handleMemberJoinInternal(member));
+}
+
+async function handleMemberJoinInternal(member) {
   const guild = member.guild;
   const before = inviteCache.get(guild.id);
 
-  let freshInvites;
-  try {
-    freshInvites = await guild.invites.fetch();
-  } catch (error) {
-    console.error(`Could not fetch invites on join for guild ${guild.id}:`, error.message);
-    return;
-  }
-
+  // Discord's invite `uses` count can take a moment to reflect a join that
+  // JUST happened, so a fetch made immediately after guildMemberAdd can
+  // still show the pre-join numbers. Retry a few times with a short delay
+  // before giving up, instead of only trying once.
   let usedInvite = null;
+  let freshInvites = null;
 
-  if (before) {
-    for (const invite of freshInvites.values()) {
-      const previousUses = before.get(invite.code) ?? 0;
-      if ((invite.uses ?? 0) > previousUses) {
-        usedInvite = invite;
-        break;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await sleep(750);
+
+    try {
+      freshInvites = await guild.invites.fetch();
+    } catch (error) {
+      console.error(`Could not fetch invites on join for guild ${guild.id}:`, error.message);
+      return;
+    }
+
+    if (before) {
+      for (const invite of freshInvites.values()) {
+        const previousUses = before.get(invite.code) ?? 0;
+        if ((invite.uses ?? 0) > previousUses) {
+          usedInvite = invite;
+          break;
+        }
       }
     }
+
+    if (usedInvite || !before) break; // Found it, or no baseline to compare against anyway.
   }
 
   // Re-cache with the fresh numbers regardless, so the next join compares
