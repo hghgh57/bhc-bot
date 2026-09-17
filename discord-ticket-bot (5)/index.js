@@ -28,6 +28,9 @@ const { getClaim, setClaim, deleteClaim } = require("./ticketClaims");
 // Giveaways: /gcreate, /greroll, and the Join/Leave buttons.
 const { initGiveaways, joinGiveaway, leaveGiveaway } = require("./giveawayManager");
 
+// Invite tracking: powers /gcreate's invite_entries bonus-entries option.
+const { cacheGuildInvites, handleMemberJoin } = require("./inviteTracker");
+
 
 // A ticket channel this bot actually created always has its opener's user
 // ID set as the channel topic (same check /close and /ticket-rename use).
@@ -128,6 +131,13 @@ client.once("ready", () => {
   client.user.setActivity("BHC37's Server", { type: ActivityType.Watching });
 
   initGiveaways(client).catch(err => console.error("Failed to initialize giveaways:", err));
+
+  // Snapshot current invite use-counts for every guild so the very next
+  // join in each one can be compared against a baseline. Requires the bot
+  // to have "Manage Server" in that guild — logs a warning per-guild if not.
+  for (const guild of client.guilds.cache.values()) {
+    cacheGuildInvites(guild).catch(err => console.error(`Failed to cache invites for guild ${guild.id}:`, err));
+  }
 });
 
 // =====================================================================
@@ -471,6 +481,7 @@ client.on("interactionCreate", async i => {
 // =====================================================================
 client.on("guildMemberAdd", member => {
   sendWelcomeMessage(member).catch(err => console.error("Failed to send welcome message:", err));
+  handleMemberJoin(member).catch(err => console.error("Failed to process invite tracking for join:", err));
 });
 
 // =====================================================================
