@@ -145,6 +145,12 @@ client.once("ready", () => {
 // INTERACTIONS
 // =====================================================================
 client.on("interactionCreate", async i => {
+  // Logged unconditionally, before any command logic, so we can tell for
+  // certain whether ONE interaction ID is arriving here more than once
+  // (proof of a delivery/dispatch issue) vs. arriving once but something
+  // downstream sending its response twice (a code bug in that command).
+  console.log(`[interactionCreate] id=${i.id} type=${i.type} name=${i.commandName || i.customId || "n/a"} at ${new Date().toISOString()}`);
+
   // ---- Slash commands ----
   if (i.isChatInputCommand()) {
     const command = client.commands.get(i.commandName);
