@@ -36,7 +36,7 @@ module.exports = {
     .addBooleanOption(option =>
       option
         .setName("invite_entries")
-        .setDescription("Every 2 invites = +1 extra entry. Defaults to false.")
+        .setDescription("Every 2 invites = +1 extra entry, up to 3 entries total. Defaults to false.")
         .setRequired(false)
     ),
 
