@@ -7,6 +7,15 @@ const {
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
+
+// A short random ID generated fresh every time this process starts. If you
+// see /gcreate handled twice with two DIFFERENT instance IDs in your logs,
+// that's proof-positive two separate bot processes are running at once
+// (the actual root cause to fix, not something code can safely paper over
+// if they don't share a disk). Same instance ID twice would point to a
+// different bug instead.
+const INSTANCE_ID = crypto.randomBytes(4).toString("hex");
 const { getInviteCount } = require("./inviteTracker");
 
 const giveaways = new Map();
@@ -274,10 +283,15 @@ function claimInteraction(interactionId) {
 }
 
 async function startGiveaway({ interaction, prize, winners, duration, inviteEntries = false }) {
+  console.log(`[gcreate] instance ${INSTANCE_ID} handling interaction ${interaction.id} (user ${interaction.user.id}, prize "${prize}")`);
+
   if (!claimInteraction(interaction.id)) {
+    console.log(`[gcreate] instance ${INSTANCE_ID} LOST the claim race for interaction ${interaction.id} — another process already has it, skipping.`);
     // Another process already handled this exact /gcreate invocation.
     return { success: false, error: "This giveaway was already started.", alreadyClaimed: true };
   }
+
+  console.log(`[gcreate] instance ${INSTANCE_ID} claimed interaction ${interaction.id}, proceeding.`);
 
   const durationMs = parseDuration(duration);
 
