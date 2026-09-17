@@ -137,19 +137,21 @@ function formatTimeLeft(ms) {
 }
 
 // Every 2 invites a member has brought in = 1 extra giveaway entry, on top
-// of the 1 entry they already get for joining. Only applies to giveaways
-// created with invite_entries:true.
+// of the 1 entry they already get for joining — capped at 3 entries total
+// (so 4+ invites doesn't keep stacking, it just maxes out at +2 bonus).
+// Only applies to giveaways created with invite_entries:true.
 function getEntryWeight(giveaway, userId) {
   if (!giveaway.inviteEntries) return 1;
 
   const invites = getInviteCount(giveaway.guildId, userId);
-  return 1 + Math.floor(invites / 2);
+  return Math.min(3, 1 + Math.floor(invites / 2));
 }
 
 // Picks `count` unique winners from `entrants` (an array of user IDs).
 // When giveaway.inviteEntries is set, each entrant is weighted by
-// getEntryWeight() (1 + floor(invites/2)) so heavier inviters are more
-// likely — but never guaranteed, and never picked more than once — to win.
+// getEntryWeight() (1 + floor(invites/2), capped at 3) so heavier inviters
+// are more likely — but never guaranteed, and never picked more than once
+// — to win.
 function pickWeightedWinners(giveaway, entrants, count) {
   const pool = [];
 
@@ -192,7 +194,7 @@ function createGiveawayEmbed(giveaway) {
     // instead of leaving a relative timestamp behind.
     ...(hasWinners ? [] : [`**Ends:** \`${timeLeft}\``]),
     ...(giveaway.inviteEntries && !hasWinners
-      ? ["", "🔗 Every **2 invites** you bring gets you **+1 extra entry**!"]
+      ? ["", "🔗 Every **2 invites** you bring gets you **+1 extra entry** (max **3 entries** total)!"]
       : []),
     "",
     `<t:${endTimestamp}:F>`
