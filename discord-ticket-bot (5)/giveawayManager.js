@@ -7,6 +7,7 @@ const {
 
 const fs = require("fs");
 const path = require("path");
+const { getInviteCount } = require("./inviteTracker");
 
 const giveaways = new Map();
 
@@ -126,6 +127,45 @@ function formatTimeLeft(ms) {
   return parts.slice(0, 2).join(" ");
 }
 
+// Every 2 invites a member has brought in = 1 extra giveaway entry, on top
+// of the 1 entry they already get for joining. Only applies to giveaways
+// created with invite_entries:true.
+function getEntryWeight(giveaway, userId) {
+  if (!giveaway.inviteEntries) return 1;
+
+  const invites = getInviteCount(giveaway.guildId, userId);
+  return 1 + Math.floor(invites / 2);
+}
+
+// Picks `count` unique winners from `entrants` (an array of user IDs).
+// When giveaway.inviteEntries is set, each entrant is weighted by
+// getEntryWeight() (1 + floor(invites/2)) so heavier inviters are more
+// likely — but never guaranteed, and never picked more than once — to win.
+function pickWeightedWinners(giveaway, entrants, count) {
+  const pool = [];
+
+  for (const userId of entrants) {
+    const weight = getEntryWeight(giveaway, userId);
+    for (let i = 0; i < weight; i++) pool.push(userId);
+  }
+
+  const winners = [];
+
+  while (winners.length < count && pool.length > 0) {
+    const randomIndex = Math.floor(Math.random() * pool.length);
+    const winnerId = pool[randomIndex];
+
+    winners.push(winnerId);
+
+    // Remove every copy of this winner so they can't be drawn twice.
+    for (let i = pool.length - 1; i >= 0; i--) {
+      if (pool[i] === winnerId) pool.splice(i, 1);
+    }
+  }
+
+  return winners;
+}
+
 function createGiveawayEmbed(giveaway) {
   const hasWinners = giveaway.winners.length > 0;
   const endTimestamp = Math.floor(giveaway.endTime / 1000);
@@ -142,6 +182,9 @@ function createGiveawayEmbed(giveaway) {
     // (the countdown box just goes away, like a timer that's done)
     // instead of leaving a relative timestamp behind.
     ...(hasWinners ? [] : [`**Ends:** \`${timeLeft}\``]),
+    ...(giveaway.inviteEntries && !hasWinners
+      ? ["", "🔗 Every **2 invites** you bring gets you **+1 extra entry**!"]
+      : []),
     "",
     `<t:${endTimestamp}:F>`
   ];
@@ -203,7 +246,7 @@ function startCountdownRefresh(client, giveawayId) {
   }, 9 * 1000);
 }
 
-async function startGiveaway({ interaction, prize, winners, duration }) {
+async function startGiveaway({ interaction, prize, winners, duration, inviteEntries = false }) {
   const durationMs = parseDuration(duration);
 
   if (!durationMs) {
@@ -243,6 +286,10 @@ async function startGiveaway({ interaction, prize, winners, duration }) {
     host: `<@${interaction.user.id}>`,
 
     endTime: Date.now() + durationMs,
+
+    // When true, winner selection weights each entrant by 1 + floor(their
+    // invites / 2) — see getEntryWeight() above.
+    inviteEntries: Boolean(inviteEntries),
 
     entries: new Set(),
     winners: [],
@@ -409,13 +456,7 @@ async function endGiveaway(client, giveawayId) {
   }
 
   const entries = [...giveaway.entries];
-
-  const winners = [];
-
-  while (winners.length < giveaway.winnerCount && entries.length > 0) {
-    const randomIndex = Math.floor(Math.random() * entries.length);
-    winners.push(entries.splice(randomIndex, 1)[0]);
-  }
+  const winners = pickWeightedWinners(giveaway, entries, giveaway.winnerCount);
 
   giveaway.winners = winners;
 
@@ -480,13 +521,7 @@ async function rerollGiveaway(interaction, giveawayId) {
   }
 
   const winnerCount = Math.min(giveaway.winnerCount, entries.length);
-
-  const newWinners = [];
-
-  while (newWinners.length < winnerCount && entries.length > 0) {
-    const randomIndex = Math.floor(Math.random() * entries.length);
-    newWinners.push(entries.splice(randomIndex, 1)[0]);
-  }
+  const newWinners = pickWeightedWinners(giveaway, entries, winnerCount);
 
   giveaway.winners = newWinners;
 
