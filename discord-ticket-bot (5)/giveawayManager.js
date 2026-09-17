@@ -246,7 +246,39 @@ function startCountdownRefresh(client, giveawayId) {
   }, 9 * 1000);
 }
 
+// Guards against the SAME /gcreate interaction being processed twice, which
+// happens if two copies of the bot end up connected at once (e.g. an old
+// deploy that never got killed) — Discord delivers the interaction to every
+// connected session, so both would otherwise post their own giveaway
+// message and send their own DM. This claims the interaction on disk (so it
+// works even across two separate processes sharing DATA_DIR), and the
+// second process to try loses the race and bails out quietly.
+const CLAIMED_DIR = path.join(DATA_DIR, "claimed_interactions");
+
+function claimInteraction(interactionId) {
+  try {
+    fs.mkdirSync(CLAIMED_DIR, { recursive: true });
+    const claimFile = path.join(CLAIMED_DIR, `${interactionId}.lock`);
+    // "wx" fails with EEXIST if the file is already there — this is an
+    // atomic create, so it's safe even if two processes race to call it
+    // at the same instant.
+    fs.writeFileSync(claimFile, String(Date.now()), { flag: "wx" });
+    return true;
+  } catch (error) {
+    if (error.code === "EEXIST") return false;
+    // If claiming fails for some other reason (e.g. read-only disk), don't
+    // block giveaways from working — just let it through unclaimed.
+    console.error("Could not claim interaction (continuing anyway):", error.message);
+    return true;
+  }
+}
+
 async function startGiveaway({ interaction, prize, winners, duration, inviteEntries = false }) {
+  if (!claimInteraction(interaction.id)) {
+    // Another process already handled this exact /gcreate invocation.
+    return { success: false, error: "This giveaway was already started.", alreadyClaimed: true };
+  }
+
   const durationMs = parseDuration(duration);
 
   if (!durationMs) {
